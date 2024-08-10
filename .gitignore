@@ -1,0 +1,9 @@
+data/
+data/dict/
+.hypothesis/
+backup/
+results/
+.ipynb_checkpoints/
+__pycache__/
+
+*.ipynb
