@@ -22,11 +22,12 @@ def train(model, optim, trainload, device, epoch):
     
     CE_loss = torch.nn.CrossEntropyLoss(ignore_index=3)
     
-    for step, data, _ in tqdm(enumerate(trainload)):
+    for step, data in tqdm(enumerate(trainload)):
         optim.zero_grad()
-
         batched_data = Batch()
-        graph_batch = batched_data.from_data_list(list(itertools.chain.from_iterable(data)))
+        data_x, _ = zip(*data)
+        # label = torch.stack(data_y)
+        graph_batch = batched_data.from_data_list(list(itertools.chain.from_iterable(list(data_x))))
         graph_batch = graph_batch.to(device)
         nodes = graph_batch.x
                 
@@ -64,9 +65,11 @@ def eval(model, _valload, device, epoch):
     CE_loss = torch.nn.CrossEntropyLoss(ignore_index=3)
     
     with torch.no_grad():
-        for step, data, _ in tqdm(enumerate(_valload)):
+        for step, data in tqdm(enumerate(_valload)):
             batched_data = Batch()
-            graph_batch = batched_data.from_data_list(list(itertools.chain.from_iterable(data)))
+            data_x, _ = zip(*data)
+            # label = torch.stack(data_y)
+            graph_batch = batched_data.from_data_list(list(itertools.chain.from_iterable(list(data_x))))
             graph_batch = graph_batch.to(device)
             nodes = graph_batch.x
                     
@@ -161,7 +164,7 @@ def experiment(model_config, num_experiments=5, path_results='./results/'):
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Train Time', train_time_cost]
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Val Time', val_time_cost]
 
-    df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining_1.csv')
+    df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining.csv')
     return df
 
 
@@ -179,6 +182,7 @@ if __name__ == '__main__':
         'batch_size': 5,
         'max_len_seq': 50,
         'device': "cuda" if torch.cuda.is_available() else "cpu", 
+        # 'device': "cpu",
         'data_len' : len(dataset),
         'val_split' : 0.1,
         'test_split' : 0.2,
@@ -192,13 +196,12 @@ if __name__ == '__main__':
 
     model_config = {
         'vocab_size': 15322, # number of disease + symbols for word embedding (avec vst) + 1 for mask
-        'edge_relationship_size': 8, # number of vocab for edge_attr
+        'edge_relationship_size': 12, # number of vocab for edge_attr
         'hidden_size': 50*5, # word embedding and seg embedding hidden size
         'seg_vocab_size': 2, # number of vocab for seg embedding
         'age_vocab_size': 151, # number of vocab for age embedding
         'time_vocab_size': 380, # number of vocab for time embedding
         'type_vocab_size': 11+1, # number of vocab for type embedding + 1 for mask
-        # 'node_attr_size': 8, # number of vocab for node_attr embedding
         'max_position_embedding': 50, # maximum number of tokens
         'hidden_dropout_prob': 0.2, # dropout rate
         'graph_dropout_prob': 0.2, # dropout rate
@@ -210,9 +213,10 @@ if __name__ == '__main__':
         'initializer_range': 0.02, # parameter weight initializer range
         'n_layers' : 3 - 1,
         'alpha' : 0.1
+        # 'node_attr_size': 8, # number of vocab for node_attr embedding
     } 
     
-    df = experiment(model_config=model_config, num_experiments=5, path_results=path_results)
+    df = experiment(model_config=model_config, num_experiments=1, path_results=path_results)
     # Group by Model and Metric and calculate average and standard deviation
     result_df = df.groupby(['Model', 'Metric']).agg({'Score': ['mean', 'std']}).reset_index()
 
