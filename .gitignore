@@ -6,4 +6,5 @@ results/
 .ipynb_checkpoints/
 __pycache__/
 
-*.ipynb
+*.log
+GT-BEHRT_Notebook.ipynb

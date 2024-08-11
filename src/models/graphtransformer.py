@@ -32,7 +32,7 @@ class BertConfig(Bert.modeling.BertConfig):
         self.time_vocab_size = config.get('time_vocab_size')
         self.graph_dropout_prob = config.get('graph_dropout_prob')
         self.edge_relationship_size = config.get('edge_relationship_size')
-        # self.node_attr_size = config.get('node_attr_size')
+        self.number_output = config.get('number_output')
 
 
 class TransformerConv(MessagePassing):
@@ -183,7 +183,7 @@ class GraphTransformer(nn.Module):
         self.embed = nn.Embedding(config.vocab_size, config.hidden_size // 5)
         self.embed_ee = nn.Embedding(config.edge_relationship_size, config.hidden_size // 5)
 
-    def forward(self, x, edge_index, edge_index_readout, edge_attr, batch):
+    def forward(self, x, edge_index, edge_attr, batch):
         indices = (x==0).nonzero().squeeze()
         h_nodes = self.conv(self.embed(x), edge_index, self.embed_ee(edge_attr), batch)
         x = h_nodes[indices]
@@ -195,6 +195,21 @@ class PreTrainModel(nn.Module):
         super(PreTrainModel, self).__init__()
         self.config = config
         self.gnn = GraphTransformer(config)
+        self.linear = nn.Linear(self.config.hidden_size // 5, self.config.vocab_size)
+        self.layers = nn.ModuleList([self.gnn, self.linear])
+
+    def forward(self, nodes, edge_index, edge_attr, batch):
+        # Define the forward pass using self.gnn and self.linear as needed
+        vst, x = self.gnn(nodes, edge_index, edge_attr, batch)
+        x = self.linear(x)
+        return x
+    
+    
+class FineTuningModel(nn.Module):
+    def __init__(self, config, pretrained_model):
+        super(FineTuningModel, self).__init__()
+        self.config = config
+        self.gnn = pretrained_model
         self.linear = nn.Linear(self.config.hidden_size // 5, self.config.vocab_size)
         self.layers = nn.ModuleList([self.gnn, self.linear])
 

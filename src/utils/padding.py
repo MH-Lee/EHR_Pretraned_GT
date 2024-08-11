@@ -20,7 +20,7 @@ def create_graph_pad(patient):
     visite = Data(
         x = torch.tensor([0,1], dtype=torch.int64),
         edge_index = torch.tensor([[0],[1]], dtype=torch.int64),
-        edge_attr = torch.tensor([11], dtype=torch.int64),  # on met des valeurs qui n'existent pas pour les visites de padding
+        edge_attr = torch.tensor([7], dtype=torch.int64),  # on met des valeurs qui n'existent pas pour les visites de padding
         # label = patient.label,
         age = torch.tensor([130], dtype=torch.int64),
         time = torch.tensor([367], dtype=torch.int64),
@@ -37,7 +37,7 @@ def create_graph_pad(patient):
 
 if __name__ == '__main__':
     print(os.getcwd())
-    with open('./data/data.pkl', 'rb') as f:
+    with open('./data/data_v2.pkl', 'rb') as f:
         dataset = pkl.load(f)
     print('dataset loaded')
 
@@ -111,5 +111,5 @@ if __name__ == '__main__':
 
 print('dataset_pad created')
 
-with open('./data/pretrained_data_pad.pkl', 'wb') as f:
+with open('./data/pretrained_data_pad_v2.pkl', 'wb') as f:
     pkl.dump(dataset_pad, f)

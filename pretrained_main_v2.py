@@ -119,7 +119,7 @@ def run_epoch(model, optim_model, trainload, valload, device, exp, path_results)
         print('TRAIN \t{} secs'.format(train_time_cost))
         print(f'TRAIN accuracy : {accuracy_train}')
         
-        with open(path_results + 'losses_and_times/' + "pre_training_log_train_" + f'{exp}' + ".txt", 'a') as f:
+        with open(path_results + 'losses_and_times/' + "pre_training_log_train_" + f'{exp}' + "_v2.txt", 'a') as f:
             f.write("Epoch n" + str(e) + '\n TRAIN {}\t{} secs\n'.format(train_loss, train_time_cost))
             f.write('EVAL {}\t{} secs\n'.format(val_loss, val_time_cost) + '\n\n\n')
         print('EVAL \t{} secs'.format(val_time_cost))
@@ -127,7 +127,7 @@ def run_epoch(model, optim_model, trainload, valload, device, exp, path_results)
 
         if val_loss < best_val:
             print("** ** * Saving fine - tuned model ** ** * ")
-            torch.save(model.gnn.state_dict(), path_results + 'weights/' + 'GraphTransformer_pretrain_num_' + f'{exp}' + '.pch')
+            torch.save(model.gnn.state_dict(), path_results + 'weights/' + 'GraphTransformer_pretrain_num_' + f'{exp}' + '_v2.pch')
             best_val = val_loss
             
     epoch = [i for i in range(train_params["epochs"])]
@@ -166,14 +166,14 @@ def experiment(model_config, num_experiments=5, path_results='./results/'):
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Train Time', train_time_cost]
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Val Time', val_time_cost]
 
-    df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining.csv')
+    df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining_v2.csv')
     return df
 
 
 if __name__ == '__main__': 
     path = './data/'
     path_results = './results/'
-    with open(os.path.join(path, 'pretrained_data_pad.pkl'), 'rb') as handle:
+    with open(os.path.join(path, 'pretrained_data_pad_v2.pkl'), 'rb') as handle:
         dataset = pickle.load(handle)
     
     pourcentage_nodes_to_mask = 0.20
@@ -198,7 +198,7 @@ if __name__ == '__main__':
 
     model_config = {
         'vocab_size': 15322, # number of disease + symbols for word embedding (avec vst) + 1 for mask
-        'edge_relationship_size': 12, # number of vocab for edge_attr
+        'edge_relationship_size': 8, # number of vocab for edge_attr
         'hidden_size': 108*5, # word embedding and seg embedding hidden size
         'seg_vocab_size': 2, # number of vocab for seg embedding
         'age_vocab_size': 151, # number of vocab for age embedding
@@ -229,4 +229,4 @@ if __name__ == '__main__':
     result_df['Standard Deviation'] = result_df['Standard Deviation'].round(2)
 
     # save the result
-    result_df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining_global.csv')
+    result_df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining_global_v2.csv')
