@@ -36,8 +36,8 @@ class BertEmbeddings(nn.Module):
         self.acti = nn.GELU()
         self.cls_token = nn.Parameter(torch.randn(1, 1, config.hidden_size))
 
-    def forward(self, nodes, edge_index, edge_index_readout, edge_attr, batch, age_ids, time_ids, type_ids, posi_ids):
-        word_embed = self.word_embeddings(nodes, edge_index, edge_index_readout, edge_attr, batch)
+    def forward(self, nodes, edge_index, edge_attr, batch, age_ids, time_ids, type_ids, posi_ids):
+        word_embed = self.word_embeddings(nodes, edge_index, edge_attr, batch)
         type_embeddings = self.type_embeddings(type_ids)
         age_embed = self.age_embeddings(age_ids)
         
@@ -85,7 +85,8 @@ class BertModel(Bert.modeling.BertPreTrainedModel):
         self.pooler = Bert.modeling.BertPooler(config)
         self.apply(self.init_bert_weights)
 
-    def forward(self, nodes, edge_index, edge_index_readout, edge_attr, batch, age_ids, time_ids, type_ids, posi_ids, attention_mask=None,
+    def forward(self, nodes, edge_index, edge_attr, batch, 
+                age_ids, time_ids, type_ids, posi_ids, attention_mask=None,
                 output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(age_ids)
@@ -105,7 +106,7 @@ class BertModel(Bert.modeling.BertPreTrainedModel):
         extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
-        embedding_output = self.embeddings(nodes, edge_index, edge_index_readout, edge_attr, batch, age_ids, time_ids, type_ids, posi_ids)
+        embedding_output = self.embeddings(nodes, edge_index, edge_attr, batch, age_ids, time_ids, type_ids, posi_ids)
         encoded_layers = self.encoder(embedding_output,
                                       extended_attention_mask,
                                       output_all_encoded_layers=output_all_encoded_layers)
@@ -125,13 +126,14 @@ class BertForNDP(Bert.modeling.BertPreTrainedModel):
         self.relu = nn.ReLU()
         self.apply(self.init_bert_weights)
     
-    def forward(self, nodes, edge_index, edge_index_readout, edge_attr, \
+    def forward(self, nodes, edge_index, edge_attr, \
                 batch, age_ids, time_ids, type_ids, posi_ids, \
-                attention_mask=None, labels=None, masks=None):
-        _, pooled_output = self.bert(nodes, edge_index, edge_index_readout, edge_attr, batch, age_ids, time_ids, type_ids, posi_ids, attention_mask,
-                                     output_all_encoded_layers=False)
+                labels=None, attention_mask=None, masks=None):
+        _, pooled_output = self.bert(nodes, edge_index, edge_attr, batch, 
+                                     age_ids, time_ids, type_ids, posi_ids, 
+                                     attention_mask, output_all_encoded_layers=False)
         logits = self.classifier(pooled_output).squeeze(dim=1)
-        bce_logits_loss = nn.BCEWithLogitsLoss(reduction='mean')
+        bce_logits_loss = nn.BCEWithLogitsLoss()
         discr_supervised_loss = bce_logits_loss(logits, labels)
         return discr_supervised_loss, logits
     

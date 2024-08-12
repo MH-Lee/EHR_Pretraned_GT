@@ -5,6 +5,7 @@ backup/
 results/
 .ipynb_checkpoints/
 __pycache__/
-
+wandb/
 *.log
+logs/
 GT-BEHRT_Notebook.ipynb

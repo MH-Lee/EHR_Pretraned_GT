@@ -37,7 +37,7 @@ def create_graph_pad(patient):
 
 if __name__ == '__main__':
     print(os.getcwd())
-    with open('./data/data_v2.pkl', 'rb') as f:
+    with open('./data/data_v3.pkl', 'rb') as f:
         dataset = pkl.load(f)
     print('dataset loaded')
 
@@ -108,8 +108,10 @@ if __name__ == '__main__':
                 # patient_pad_liste.append(patient_y)
 
             dataset_pad.append((patient_pad_liste, patient_y))
+            # if i == 1000:
+            #     break
 
 print('dataset_pad created')
 
-with open('./data/pretrained_data_pad_v2.pkl', 'wb') as f:
+with open('./data/pretrained_data_pad_v3.pkl', 'wb') as f:
     pkl.dump(dataset_pad, f)

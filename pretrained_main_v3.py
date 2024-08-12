@@ -8,13 +8,15 @@ import matplotlib.pyplot as plt
 import random
 import pandas as pd
 from tqdm import tqdm
+from time import time
 import sklearn.metrics as skm
 import itertools
+import wandb
 from torch_geometric.loader import DataListLoader as GraphLoader
 from torch_geometric.data import Batch
 from src.models.graphtransformer import BertConfig, PreTrainModel
-from src.utils.datasets import GDSet, split_dataset
-
+from src.utils.utils import get_logger
+from src.utils.datasets import split_dataset
 
 def train(model, optim, trainload, device, epoch):
     tr_loss = 0
@@ -43,11 +45,10 @@ def train(model, optim, trainload, device, epoch):
         nodes[index_nodes_to_mask] = mask_node_embeddings
         
         edge_index = graph_batch.edge_index
-        edge_index_readout = graph_batch.edge_index
         edge_attr = graph_batch.edge_attr
         batch = graph_batch.batch
 
-        pred = model(nodes, edge_index, edge_index_readout, edge_attr, batch)
+        pred = model(nodes, edge_index, edge_attr, batch)
         loss = CE_loss(pred, labels_nodes)        
         loss.backward()
         tr_loss += loss.item()
@@ -100,34 +101,40 @@ def eval(model, _valload, device, epoch):
     cost = time.time() - start
     return val_loss, cost, pred, ytrue
 
-def run_epoch(model, optim_model, trainload, valload, device, exp, path_results):
+def run_epoch(model, optim_model, trainload, valload, device, exp, path_results, logger, writer):
     best_val = math.inf
     loss_train_liste = []
     loss_val_liste = []
     
     for e in tqdm(range(train_params["epochs"])):
-        print("Epoch n" + str(e))
+        logger.info(f"Epoch {str(e)}")
         train_loss, train_time_cost, pred_train, ytrue_train = train(model, optim_model, trainload, device, e)
         val_loss, val_time_cost, pred_eval, ytrue_eval = eval(model, valload, device, e)
-        accuracy_train = skm.accuracy_score(ytrue_train.cpu().detach().numpy(), pred_train.cpu().detach().numpy().argmax(axis=1))
-        accuracy_eval = skm.accuracy_score(ytrue_eval.cpu().detach().numpy(), pred_eval.cpu().detach().numpy().argmax(axis=1))
+        accuracy_train = skm.accuracy_score(ytrue_train.cpu().detach().numpy(), 
+                                            pred_train.cpu().detach().numpy().argmax(axis=1))
+        accuracy_eval = skm.accuracy_score(ytrue_eval.cpu().detach().numpy(), 
+                                           pred_eval.cpu().detach().numpy().argmax(axis=1))
 
         train_loss = (train_loss * train_params['batch_size']) / len(trainload)
         val_loss = (val_loss * train_params['batch_size']) / len(valload)
         loss_train_liste.append(train_loss)
         loss_val_liste.append(val_loss)
-        print('TRAIN \t{} secs'.format(train_time_cost))
-        print(f'TRAIN accuracy : {accuracy_train}')
-        
-        with open(path_results + 'losses_and_times/' + "pre_training_log_train_" + f'{exp}' + ".txt", 'a') as f:
-            f.write("Epoch n" + str(e) + '\n TRAIN {}\t{} secs\n'.format(train_loss, train_time_cost))
-            f.write('EVAL {}\t{} secs\n'.format(val_loss, val_time_cost) + '\n\n\n')
-        print('EVAL \t{} secs'.format(val_time_cost))
-        print('EVAL accuracy : {}\n\n'.format(accuracy_eval))
-
+        logger.info(f'Train accuracy : {accuracy_train}')
+        logger.info(f'Valid accuracy : {accuracy_eval}')
+        logger.info(f"Epoch {str(e)} \tTrain Loss: {train_loss} \t{train_time_cost} secs")
+        logger.info(f"Valid Loss : {val_loss} \t{val_time_cost} secs")
+        writer.log(
+                data={
+                    'Train Loss': train_loss,
+                    'Validation loss': val_loss,
+                    'Train accuracy': accuracy_train,
+                    'Validation accuracy': accuracy_eval,
+                },
+                step= epoch
+            )
         if val_loss < best_val:
-            print("** ** * Saving fine - tuned model ** ** * ")
-            torch.save(model.gnn.state_dict(), path_results + 'weights/' + 'GraphTransformer_pretrain_num_' + f'{exp}' + '.pch')
+            logger.info("** ** * Saving fine - tuned model ** ** * ")
+            torch.save(model.gnn.state_dict(), path_results + 'weights/' + 'GraphTransformer_pretrain_exp' + f'{exp}' + '_v3.pch')
             best_val = val_loss
             
     epoch = [i for i in range(train_params["epochs"])]
@@ -137,85 +144,86 @@ def run_epoch(model, optim_model, trainload, valload, device, exp, path_results)
     plt.legend(['val'])
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
-    plt.savefig(path_results + 'plots/' + 'Pre_training.png')
+    plt.savefig(path_results + 'plots/' + f'Pre_training_{exp}.png')
     plt.show()
     return train_loss, val_loss, accuracy_train, accuracy_eval, train_time_cost, val_time_cost
 
 def experiment(model_config, num_experiments=5, path_results='./results/'):
     conf = BertConfig(model_config)
+    logger = get_logger('pretraining', model_config.get('log_dir'), './config/')
     df = pd.DataFrame(columns=['Experiment', 'Model', 'Metric', 'Score'])
-
+    total_config = train_params | model_config
+    lr = total_config['lr']
     for exp in tqdm(range(num_experiments)):
+        writer = wandb.init(project='EHR-Project',\
+		                name=f'pretrained_mimiciv_exp{exp}_{lr}', \
+						config=total_config, reinit=True, \
+                        settings=wandb.Settings(start_method='thread'))
         model = PreTrainModel(conf).to(train_params['device'])
         transformer_vars = [i for i in model.parameters()]
         optim_model = torch.optim.AdamW(transformer_vars, lr=train_params['lr'], weight_decay=train_params['weight_decay'])
-
-        print(f"\n Experiment {exp + 1}")
-        trainDSet, valDSet, testDSet = split_dataset(dataset, train_params, random_seed=exp)
-        trainload = GraphLoader(GDSet(trainDSet), batch_size=train_params['batch_size'], shuffle=False)
-        valload = GraphLoader(GDSet(valDSet), batch_size=train_params['batch_size'], shuffle=False)
+        logger.info(f"Experiment {exp + 1}")
+        load_start = time()
+        trainDSet = torch.load(os.path.join('./data/pt', f'train_dataset_exp{exp}.pt'))
+        valDSet = torch.load(os.path.join('./data/pt', f'valid_dataset_exp{exp}.pt'))
+        logger.info(f"Data loaded in {time() - load_start} secs")
+        trainload = GraphLoader(trainDSet, batch_size=train_params['batch_size'], shuffle=False)
+        valload = GraphLoader(valDSet, batch_size=train_params['batch_size'], shuffle=False)
 
         train_loss, val_loss, accuracy_train, accuracy_eval, train_time_cost, val_time_cost = run_epoch(
-            model, optim_model, trainload, valload, train_params['device'], exp, path_results
+            model, optim_model, trainload, valload, train_params['device'], \
+            exp, path_results, logger, writer \
         )
-        
-        df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Val Accuracy', accuracy_eval]
+        writer.finish()
+        df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Train Accuracy', accuracy_train]
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Val Accuracy', accuracy_eval]
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Train Loss', train_loss]
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Val Loss', val_loss]
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Train Time', train_time_cost]
         df.loc[len(df)] = [exp + 1, 'GT_BERT', 'Val Time', val_time_cost]
-
-    df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining.csv')
+    df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining_v3.csv')
     return df
 
 
 if __name__ == '__main__': 
     path = './data/'
     path_results = './results/'
-    with open(os.path.join(path, 'pretrained_data_pad.pkl'), 'rb') as handle:
-        dataset = pickle.load(handle)
+    # with open(os.path.join(path, 'pretrained_data_pad_v3.pkl'), 'rb') as handle:
+    #     dataset = pickle.load(handle)
     
-    pourcentage_nodes_to_mask = 0.20
+    pourcentage_nodes_to_mask = 0.15
     labels_masked_nodes = []
     mask_node_embeddings = 2
     
     train_params = {
-        'batch_size': 5,
+        'batch_size': 32,
         'max_len_seq': 50,
         'device': "cuda" if torch.cuda.is_available() else "cpu", 
-        # 'device': "cpu",
-        'data_len' : len(dataset),
-        'val_split' : 0.1,
-        'test_split' : 0.2,
-        'train_data_len' : int(0.9*0.8*len(dataset)),   # the train dataset is 90% of 80% of the whole dataset
-        'val_data_len' : int(0.1*0.8*len(dataset)),   # the validation dataset is 10% of 80% of the whole dataset
-        'test_data_len' : int(0.2*len(dataset)),   # the test dataset is 20% of the whole dataset
-        'epochs' : 100,
+        'epochs' : 30,
         'lr': 0.0001,
-        'weight_decay': 0.0001
+        'weight_decay': 0.0005
     }
 
     model_config = {
-        'vocab_size': 15322, # number of disease + symbols for word embedding (avec vst) + 1 for mask
-        'edge_relationship_size': 12, # number of vocab for edge_attr
-        'hidden_size': 108*5, # word embedding and seg embedding hidden size
+        'log_dir': './logs/',
+        'vocab_size': 6978, # number of disease + symbols for word embedding (avec vst) + 1 for mask
+        'edge_relationship_size': 8, # number of vocab for edge_attr
+        'hidden_size': 128*5, # word embedding and seg embedding hidden size
         'seg_vocab_size': 2, # number of vocab for seg embedding
-        'age_vocab_size': 151, # number of vocab for age embedding
+        'age_vocab_size': 150, # number of vocab for age embedding
         'time_vocab_size': 380, # number of vocab for time embedding
         'type_vocab_size': 11+1, # number of vocab for type embedding + 1 for mask
         'max_position_embedding': 50, # maximum number of tokens
         'hidden_dropout_prob': 0.2, # dropout rate
         'graph_dropout_prob': 0.2, # dropout rate
-        'num_hidden_layers': 6, # number of multi-head attention layers required
-        'num_attention_heads':12, # number of attention heads
+        'num_hidden_layers': 3, # number of multi-head attention layers required
+        'num_attention_heads':8, # number of attention heads
         'attention_probs_dropout_prob': 0.2, # multi-head attention dropout rate
         'intermediate_size': 512, # the size of the "intermediate" layer in the transformer encoder
         'hidden_act': 'gelu', # The non-linear activation function in the encoder and the pooler "gelu", 'relu', 'swish' are supported
         'initializer_range': 0.02, # parameter weight initializer range
-        'n_layers' : 3,
+        'n_layers' : 2,
         'alpha' : 0.1
-        # 'node_attr_size': 8, # number of vocab for node_attr embedding
     } 
     
     df = experiment(model_config=model_config, num_experiments=3, path_results=path_results)
@@ -229,4 +237,4 @@ if __name__ == '__main__':
     result_df['Standard Deviation'] = result_df['Standard Deviation'].round(2)
 
     # save the result
-    result_df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining_global.csv')
+    result_df.to_csv(path_results + 'dataframes/' + 'GT_behrt_results_pretraining_global_v3.csv')
